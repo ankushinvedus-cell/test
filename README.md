@@ -68,7 +68,8 @@ A runnable React MVP is available in `web/`.
 - Upload and read **EPUB** files in-browser
 - Local library stored in browser `localStorage`
 - Reading progress saved per book (PDF page, EPUB CFI location)
-- Modern, clean interface with searchable library and quick actions
+- Dark, minimal interface with searchable library and quick actions
+- Sync Hub with shareable sync code export/import for cross-device library merge
 
 ### Run locally
 ```bash

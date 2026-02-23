@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
 
 const STORAGE_KEY = "cloudsync-reader-mvp-books";
+const LAST_SYNC_KEY = "cloudsync-reader-mvp-last-sync";
 
 export function App() {
   const [books, setBooks] = useState(() => loadBooks());
   const [activeBookId, setActiveBookId] = useState(null);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
+  const [syncCodeInput, setSyncCodeInput] = useState("");
+  const [syncCodeOutput, setSyncCodeOutput] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState(() => localStorage.getItem(LAST_SYNC_KEY) || "");
 
   const [pdfState, setPdfState] = useState({ doc: null, page: 1, pages: 0 });
   const pdfCanvasRef = useRef(null);
@@ -67,7 +71,7 @@ export function App() {
         rendition.on("relocated", (location) => {
           const cfi = location?.start?.cfi;
           if (!cfi) return;
-          setBooks((prev) => prev.map((b) => (b.id === activeBook.id ? { ...b, progress: { cfi } } : b)));
+          setBooks((prev) => prev.map((b) => (b.id === activeBook.id ? { ...b, progress: { cfi }, updatedAt: nowIso() } : b)));
         });
 
         await rendition.display(activeBook.progress?.cfi || undefined);
@@ -92,7 +96,7 @@ export function App() {
       canvas.height = viewport.height;
       await page.render({ canvasContext: context, viewport }).promise;
 
-      setBooks((prev) => prev.map((b) => (b.id === activeBook.id ? { ...b, progress: { page: pdfState.page } } : b)));
+      setBooks((prev) => prev.map((b) => (b.id === activeBook.id ? { ...b, progress: { page: pdfState.page }, updatedAt: nowIso() } : b)));
     }
 
     renderPdfPage();
@@ -123,6 +127,7 @@ export function App() {
         type,
         dataUrl,
         progress: type === "pdf" ? { page: 1 } : { cfi: null },
+        updatedAt: nowIso(),
       });
     }
 
@@ -159,6 +164,38 @@ export function App() {
     return book.id === activeBookId;
   }
 
+  async function exportSyncCode() {
+    const payload = {
+      version: 1,
+      exportedAt: nowIso(),
+      books,
+    };
+    const code = encodePayload(payload);
+    setSyncCodeOutput(code);
+
+    try {
+      await navigator.clipboard.writeText(code);
+      setToast("Sync code copied");
+    } catch {
+      setToast("Sync code generated");
+    }
+  }
+
+  function importSyncCode() {
+    try {
+      const parsed = decodePayload(syncCodeInput);
+      if (!Array.isArray(parsed.books)) throw new Error("Invalid payload");
+      setBooks((prev) => mergeBooks(prev, parsed.books));
+      const ts = nowIso();
+      setLastSyncedAt(ts);
+      localStorage.setItem(LAST_SYNC_KEY, ts);
+      setSyncCodeInput("");
+      setToast("Sync merged successfully");
+    } catch {
+      setToast("Invalid sync code");
+    }
+  }
+
   return React.createElement(
     React.Fragment,
     null,
@@ -166,12 +203,39 @@ export function App() {
       React.createElement("header", { className: "topbar" },
         React.createElement("div", null,
           React.createElement("h1", null, "CloudSync Reader"),
-          React.createElement("p", null, "Modern web MVP for PDF/EPUB reading and seamless local progress."),
+          React.createElement("p", null, "Modern web MVP for PDF/EPUB reading with shareable sync codes."),
         ),
         React.createElement("div", { className: "stats" },
           React.createElement("span", { className: "stat-pill" }, `${stats.total} books`),
           React.createElement("span", { className: "stat-pill" }, `${stats.pdf} PDF`),
           React.createElement("span", { className: "stat-pill" }, `${stats.epub} EPUB`),
+        ),
+      ),
+
+      React.createElement("section", { className: "sync-panel panel" },
+        React.createElement("div", { className: "sync-head" },
+          React.createElement("h3", null, "Sync Hub"),
+          React.createElement("span", null, lastSyncedAt ? `Last synced: ${formatDate(lastSyncedAt)}` : "Not synced yet"),
+        ),
+        React.createElement("div", { className: "sync-grid" },
+          React.createElement("div", null,
+            React.createElement("button", { className: "btn-primary", onClick: exportSyncCode }, "Generate sync code"),
+            React.createElement("textarea", {
+              className: "sync-textarea",
+              readOnly: true,
+              value: syncCodeOutput,
+              placeholder: "Generated sync code appears here",
+            }),
+          ),
+          React.createElement("div", null,
+            React.createElement("button", { className: "btn-ghost", onClick: importSyncCode }, "Import & merge"),
+            React.createElement("textarea", {
+              className: "sync-textarea",
+              value: syncCodeInput,
+              onChange: (e) => setSyncCodeInput(e.target.value),
+              placeholder: "Paste sync code from another device",
+            }),
+          ),
         ),
       ),
 
@@ -253,9 +317,57 @@ export function App() {
   );
 }
 
+function mergeBooks(existing, incoming) {
+  const map = new Map();
+
+  for (const book of existing) {
+    map.set(signature(book), normalizeBook(book));
+  }
+
+  for (const book of incoming) {
+    const next = normalizeBook(book);
+    const key = signature(next);
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, next);
+      continue;
+    }
+
+    const prevTs = Date.parse(prev.updatedAt || "1970-01-01");
+    const nextTs = Date.parse(next.updatedAt || "1970-01-01");
+    map.set(key, nextTs >= prevTs ? { ...next, id: prev.id || next.id } : prev);
+  }
+
+  return Array.from(map.values()).sort((a, b) => Date.parse(b.updatedAt || "1970-01-01") - Date.parse(a.updatedAt || "1970-01-01"));
+}
+
+function normalizeBook(book) {
+  return {
+    id: book.id || crypto.randomUUID(),
+    title: book.title || "Untitled",
+    filename: book.filename || "book",
+    type: book.type === "epub" ? "epub" : "pdf",
+    dataUrl: book.dataUrl,
+    progress: book.progress || (book.type === "epub" ? { cfi: null } : { page: 1 }),
+    updatedAt: book.updatedAt || nowIso(),
+  };
+}
+
+function signature(book) {
+  return `${(book.filename || "").toLowerCase()}::${book.type}`;
+}
+
+function encodePayload(payload) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+
+function decodePayload(code) {
+  return JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+}
+
 function loadBooks() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(normalizeBook);
   } catch {
     return [];
   }
@@ -268,4 +380,16 @@ function readAsDataUrl(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function formatDate(input) {
+  try {
+    return new Date(input).toLocaleString();
+  } catch {
+    return input;
+  }
 }
