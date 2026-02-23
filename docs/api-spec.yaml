@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: CloudSync Reader API
+  version: 0.1.0
+  description: MVP API for MEGA-connected ebook reading and synchronization.
+servers:
+  - url: https://api.example.com
+paths:
+  /auth/mega/callback:
+    post:
+      summary: Exchange MEGA callback payload for app tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: Auth success
+  /imports/mega:
+    post:
+      summary: Start import from selected MEGA path
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [libraryId, megaPath]
+              properties:
+                libraryId:
+                  type: string
+                  format: uuid
+                megaPath:
+                  type: string
+      responses:
+        '202':
+          description: Import accepted
+  /books:
+    get:
+      summary: List books visible to current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Book list
+  /books/{bookId}/progress:
+    get:
+      summary: Get latest reading progress
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: bookId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Current progress
+    post:
+      summary: Upsert reading progress checkpoint
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: bookId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressPayload'
+      responses:
+        '200':
+          description: Merged progress
+  /libraries:
+    post:
+      summary: Create a new shared library
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Library created
+  /libraries/{id}/invites:
+    post:
+      summary: Generate invite code for a library
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [editor, viewer]
+                expiresAt:
+                  type: string
+                  format: date-time
+                maxRedemptions:
+                  type: integer
+                  minimum: 1
+      responses:
+        '201':
+          description: Invite created
+  /libraries/join:
+    post:
+      summary: Redeem invite code and join library
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: Join success
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ProgressPayload:
+      type: object
+      required: [deviceId, position, percent, updatedAt, clientSeq]
+      properties:
+        deviceId:
+          type: string
+        position:
+          type: object
+          required: [type, value]
+          properties:
+            type:
+              type: string
+              enum: [epub-cfi, pdf-page]
+            value:
+              type: string
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        updatedAt:
+          type: string
+          format: date-time
+        clientSeq:
+          type: integer
+          format: int64
+        rewind:
+          type: boolean
+          default: false
