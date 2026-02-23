@@ -59,19 +59,3 @@ See detailed architecture in [`docs/architecture.md`](docs/architecture.md) and 
 - Delivery timeline: [`docs/implementation-plan.md`](docs/implementation-plan.md)
 
 
-## Web MVP (Read Books in Browser)
-
-A runnable React MVP is available in `web/`.
-
-### Features
-- Upload and read **PDF** files in-browser
-- Upload and read **EPUB** files in-browser
-- Local library stored in browser `localStorage`
-- Reading progress saved per book (PDF page, EPUB CFI location)
-
-### Run locally
-```bash
-cd web
-python3 -m http.server 8080
-```
-Open `http://localhost:8080`.
