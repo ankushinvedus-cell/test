@@ -57,3 +57,4 @@ See detailed architecture in [`docs/architecture.md`](docs/architecture.md) and 
 - Database schema: [`docs/database-schema.sql`](docs/database-schema.sql)
 - OpenAPI contract: [`docs/api-spec.yaml`](docs/api-spec.yaml)
 - Delivery timeline: [`docs/implementation-plan.md`](docs/implementation-plan.md)
+
